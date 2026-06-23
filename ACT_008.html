@@ -1,0 +1,293 @@
+html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador Microeconómico Avícola</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: auto;
+            background: #fff;
+            padding: 20px 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+            background: #eef2f5;
+            padding: 15px;
+            border-radius: 8px;
+        }
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 200px;
+        }
+        label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #34495e;
+        }
+        input {
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        button {
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            font-size: 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+            margin-top: 10px;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background-color: #2ecc71;
+        }
+        .results {
+            background: #e8f8f5;
+            border-left: 5px solid #1abc9c;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .results h3 {
+            margin-top: 0;
+            color: #16a085;
+        }
+        .chart-container {
+            position: relative;
+            height: 50vh;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Simulador Microeconómico de Producción Avícola</h1>
+    <p>Modifica los parámetros para visualizar cómo cambian los costos y los puntos óptimos en la producción de pollos Cobb 500.</p>
+    
+    <div class="controls">
+        <div class="input-group">
+            <label for="precio_alimento">Precio del Alimento ($/kg):</label>
+            <input type="number" id="precio_alimento" value="8.75" step="0.1">
+        </div>
+        <div class="input-group">
+            <label for="precio_pollo">Precio de Venta del Pollo ($/kg):</label>
+            <input type="number" id="precio_pollo" value="45.0" step="0.5">
+        </div>
+        <div class="input-group">
+            <label for="costo_fijo">Costo Fijo (Instalaciones, etc. $):</label>
+            <input type="number" id="costo_fijo" value="20.0" step="1">
+        </div>
+    </div>
+    
+    <button onclick="ejecutarSimulacion()">Ejecutar Simulación</button>
+
+    <div class="results" id="resultados">
+        <h3>Resultados del Análisis</h3>
+        <p>Haz clic en "Ejecutar Simulación" para ver los resultados.</p>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="graficaCostos"></canvas>
+    </div>
+</div>
+
+<script>
+    let myChart = null; // Variable global para guardar la instancia de la gráfica
+
+    function ejecutarSimulacion() {
+        // 1. Obtener valores de los inputs
+        const Pa = parseFloat(document.getElementById('precio_alimento').value);
+        const Pp = parseFloat(document.getElementById('precio_pollo').value);
+        const CF_val = parseFloat(document.getElementById('costo_fijo').value);
+
+        // 2. Parámetros de la función de producción (Velázquez-Villalva & Rebollar-Rebollar)
+        const b0 = 0.0463;
+        const b1 = 0.6587;
+        const b2 = -0.0330;
+
+        // 3. Identificación de Óptimos
+        // Nivel Óptimo Técnico (NOT): donde PMg = 0
+        const a_not = -b1 / (2 * b2);
+        const peso_not = b0 + b1 * a_not + b2 * Math.pow(a_not, 2);
+
+        // Nivel Óptimo Económico (NOE): donde PMg = Relación de precios (Pa/Pp)
+        const relacion_precios = Pa / Pp;
+        const a_noe = (relacion_precios - b1) / (2 * b2);
+        const peso_noe = b0 + b1 * a_noe + b2 * Math.pow(a_noe, 2);
+
+        // Actualizar el área de resultados en texto
+        const divResultados = document.getElementById('resultados');
+        divResultados.innerHTML = `
+            <h3>Resultados del Análisis</h3>
+            <p><strong>Nivel Óptimo Técnico (Mínimo esfuerzo biológico):</strong><br>
+            Alimento Consumido: ${a_not.toFixed(2)} kg | Peso Máximo del Pollo: ${peso_not.toFixed(2)} kg</p>
+            <p><strong>Nivel Óptimo Económico (Máxima ganancia monetaria):</strong><br>
+            Alimento Consumido: ${a_noe.toFixed(2)} kg | Peso Rentable del Pollo: ${peso_noe.toFixed(2)} kg</p>
+        `;
+
+        // 4. Generar datos para la gráfica
+        let dataCTMe = [];
+        let dataCVMe = [];
+        let dataCMg = [];
+        let dataIMg = [];
+        let puntoNOE = [];
+
+        // Evaluar desde 0.25 kg hasta 12.5 kg de alimento
+        for (let a = 0.25; a <= 12.5; a += 0.25) {
+            let P = b0 + b1 * a + b2 * Math.pow(a, 2);
+            let PMg = b1 + 2 * b2 * a;
+
+            // Filtrar donde PMg es positivo para evitar divisiones por cero o valores negativos sin sentido
+            if (PMg > 0.01) {
+                let CV = Pa * a;
+                let CT = CF_val + CV;
+
+                let CTMe = CT / P;
+                let CVMe = CV / P;
+                let CMg = Pa / PMg;
+
+                dataCTMe.push({ x: P, y: CTMe });
+                dataCVMe.push({ x: P, y: CVMe });
+                dataCMg.push({ x: P, y: CMg });
+                dataIMg.push({ x: P, y: Pp });
+            }
+        }
+
+        // Agregar el punto exacto del NOE a la gráfica
+        puntoNOE.push({ x: peso_noe, y: Pp });
+
+        // 5. Dibujar la Gráfica con Chart.js
+        const ctx = document.getElementById('graficaCostos').getContext('2d');
+        
+        // Destruir la gráfica anterior si existe para que no se superpongan
+        if (myChart != null) {
+            myChart.destroy();
+        }
+
+        myChart = new Chart(ctx, {
+            type: 'scatter',
+            data: {
+                datasets: [
+                    {
+                        label: 'Costo Total Medio (CTMe)',
+                        data: dataCTMe,
+                        borderColor: 'blue',
+                        backgroundColor: 'blue',
+                        showLine: true,
+                        pointRadius: 0,
+                        borderWidth: 2
+                    },
+                    {
+                        label: 'Costo Variable Medio (CVMe)',
+                        data: dataCVMe,
+                        borderColor: 'orange',
+                        backgroundColor: 'orange',
+                        showLine: true,
+                        pointRadius: 0,
+                        borderWidth: 2
+                    },
+                    {
+                        label: 'Costo Marginal (CMg)',
+                        data: dataCMg,
+                        borderColor: 'red',
+                        backgroundColor: 'red',
+                        showLine: true,
+                        pointRadius: 0,
+                        borderWidth: 2
+                    },
+                    {
+                        label: 'Ingreso Marginal (Precio de Venta)',
+                        data: dataIMg,
+                        borderColor: 'green',
+                        backgroundColor: 'transparent',
+                        showLine: true,
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        borderWidth: 2
+                    },
+                    {
+                        label: 'Óptimo Económico (CMg = IMg)',
+                        data: puntoNOE,
+                        backgroundColor: 'black',
+                        pointRadius: 6,
+                        pointHoverRadius: 8
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'linear',
+                        position: 'bottom',
+                        title: {
+                            display: true,
+                            text: 'Producción / Peso del pollo (kg)',
+                            font: { size: 14, weight: 'bold' }
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Costo / Ingreso ($)',
+                            font: { size: 14, weight: 'bold' }
+                        },
+                        // Limitar el eje Y para que la gráfica no se distorsione si el CMg sube mucho al final
+                        max: Pp * 1.5 
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': $' + context.parsed.y.toFixed(2) + ' a ' + context.parsed.x.toFixed(2) + ' kg';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Ejecutar una vez al cargar la página con los valores por defecto
+    window.onload = ejecutarSimulacion;
+</script>
+
+</body>
+</html>
+
+
+### Funcionalidades incluidas:
+ * *Interfaz visual:* Contiene campos para que ingreses el precio del alimento, el precio de venta del pollo y tus costos fijos.
+ * *Resultados calculados:* Calcula y muestra automáticamente los kilogramos exactos del Óptimo Técnico y el Óptimo Económico.
+ * *Gráfica interactiva:* Utiliza líneas interactivas donde puedes pasar el ratón por encima para ver los valores exactos (Costos Medios y Costo Marginal). Además, se recalcula al instante cuando modificas un valor y le das a "Ejecutar Simulación".
